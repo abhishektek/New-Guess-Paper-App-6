@@ -13,6 +13,7 @@ export interface ExtractedData {
 export enum ProcessingStatus {
   IDLE = 'IDLE',
   UPLOADING = 'UPLOADING',
+  COMPRESSING = 'COMPRESSING',
   OCR = 'OCR',
   ANALYZING = 'ANALYZING',
   COMPLETED = 'COMPLETED',

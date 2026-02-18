@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import Header from './components/Header';
 import FileUploader from './components/FileUploader';
 import ResultView from './components/ResultView';
@@ -11,9 +11,34 @@ const App: React.FC = () => {
   const [result, setResult] = useState<ExtractedData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+
+  // Helper to compress image for faster API transfer
+  const compressImage = (base64Str: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1200;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+    });
+  };
 
   const handleFileSelect = useCallback(async (file: File) => {
-    // Basic validation
     if (!file.type.startsWith('image/')) {
       setError('Please select a valid image file.');
       return;
@@ -22,24 +47,32 @@ const App: React.FC = () => {
     try {
       setError(null);
       setStatus(ProcessingStatus.UPLOADING);
+      setLoadingProgress(10);
 
-      // Create preview
+      // 1. Initial Load
       const reader = new FileReader();
-      const previewPromise = new Promise<string>((resolve) => {
+      const rawBase64 = await new Promise<string>((resolve) => {
         reader.onload = (e) => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
       });
-      reader.readAsDataURL(file);
-      const base64 = await previewPromise;
-      setPreviewUrl(base64);
-
-      setStatus(ProcessingStatus.OCR);
-      const data = await processExamPaper(base64, file.type);
+      setPreviewUrl(rawBase64);
       
+      // 2. Optimization
+      setStatus(ProcessingStatus.COMPRESSING);
+      setLoadingProgress(30);
+      const optimizedBase64 = await compressImage(rawBase64);
+      
+      // 3. AI Processing
+      setStatus(ProcessingStatus.OCR);
+      setLoadingProgress(60);
+      const data = await processExamPaper(optimizedBase64, 'image/jpeg');
+      
+      setLoadingProgress(100);
       setResult(data);
       setStatus(ProcessingStatus.COMPLETED);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'An unexpected error occurred during processing.');
+      setError(err.message || 'Processing failed. Please check your connection.');
       setStatus(ProcessingStatus.ERROR);
     }
   }, []);
@@ -49,76 +82,71 @@ const App: React.FC = () => {
     setResult(null);
     setError(null);
     setPreviewUrl(null);
+    setLoadingProgress(0);
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
       <Header />
       
-      <main className="flex-1 flex flex-col items-center px-4 py-12 max-w-7xl mx-auto w-full">
+      <main className="flex-1 flex flex-col items-center px-4 py-8 md:py-12 max-w-7xl mx-auto w-full">
         {status === ProcessingStatus.IDLE && (
-          <div className="w-full max-w-2xl mt-12 animate-in fade-in zoom-in duration-500">
-            <div className="text-center mb-12">
-              <h2 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight mb-4">
-                Decode Any Guess Paper <br/>
-                <span className="text-indigo-600">in Seconds.</span>
+          <div className="w-full max-w-2xl mt-8 animate-in fade-in zoom-in duration-500">
+            <div className="text-center mb-10">
+              <h2 className="text-4xl md:text-6xl font-black text-slate-900 tracking-tight mb-4">
+                Fast AI Paper <br/>
+                <span className="text-indigo-600">Scanner.</span>
               </h2>
               <p className="text-slate-500 text-lg max-w-xl mx-auto">
-                Powered by Gemini AI, we extract text and provide smart solutions for your exam questions in English & Hindi.
+                Snap a photo of your guess paper. Get text and solutions instantly.
               </p>
             </div>
             
             <FileUploader onFileSelect={handleFileSelect} isLoading={false} />
 
-            <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100 text-center">
-                <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                </div>
-                <h4 className="font-bold text-slate-800 mb-1">99% Accuracy</h4>
-                <p className="text-xs text-slate-500">State-of-the-art OCR for handwritten and printed text.</p>
-              </div>
-              <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100 text-center">
-                <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                </div>
-                <h4 className="font-bold text-slate-800 mb-1">Instant Answers</h4>
-                <p className="text-xs text-slate-500">Get concise solutions to complex exam questions.</p>
-              </div>
-              <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100 text-center">
-                <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5h12M9 3v2m1.048 9.5a18.022 18.022 0 01-3.827-5.802" /></svg>
-                </div>
-                <h4 className="font-bold text-slate-800 mb-1">Bilingual</h4>
-                <p className="text-xs text-slate-500">Native support for Hindi and English scripts.</p>
-              </div>
+            <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+              <FeatureCard icon="⚡" title="Turbo Fast" desc="Optimized image engine for instant results." color="bg-amber-50 text-amber-600" />
+              <FeatureCard icon="🔍" title="Deep Analysis" desc="Explains tough questions in simple terms." color="bg-indigo-50 text-indigo-600" />
+              <FeatureCard icon="🇮🇳" title="Hindi Ready" desc="Supports Hindi & English handwriting." color="bg-emerald-50 text-emerald-600" />
             </div>
           </div>
         )}
 
-        {(status === ProcessingStatus.OCR || status === ProcessingStatus.UPLOADING) && (
-          <div className="flex flex-col items-center justify-center min-h-[400px] animate-pulse">
-            <div className="relative w-24 h-24 mb-6">
-              <div className="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
-              <div className="absolute inset-0 border-4 border-t-indigo-600 rounded-full animate-spin"></div>
+        {status !== ProcessingStatus.IDLE && status !== ProcessingStatus.COMPLETED && status !== ProcessingStatus.ERROR && (
+          <div className="w-full max-w-lg flex flex-col items-center text-center animate-in fade-in duration-300">
+            <div className="relative w-full aspect-[3/4] max-w-[300px] mb-8 rounded-3xl overflow-hidden shadow-2xl border-4 border-white">
+              {previewUrl && <img src={previewUrl} className="w-full h-full object-cover opacity-60 grayscale-[0.5]" alt="Processing" />}
+              <div className="absolute inset-0 bg-indigo-600/10"></div>
+              {/* Scanline Effect */}
+              <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.8)] animate-[scan_2s_ease-in-out_infinite]"></div>
             </div>
-            <h3 className="text-2xl font-bold text-slate-800 mb-2">Analyzing your paper</h3>
-            <p className="text-slate-500">Extracting text and generating smart solutions...</p>
+            
+            <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden mb-4">
+              <div 
+                className="bg-indigo-600 h-full transition-all duration-500 ease-out" 
+                style={{ width: `${loadingProgress}%` }}
+              ></div>
+            </div>
+
+            <h3 className="text-2xl font-bold text-slate-800 mb-1">
+              {status === ProcessingStatus.COMPRESSING ? 'Optimizing Image...' : 'Extracting Knowledge...'}
+            </h3>
+            <p className="text-slate-500 font-medium">Please wait, almost there.</p>
           </div>
         )}
 
         {status === ProcessingStatus.ERROR && (
-          <div className="w-full max-w-xl bg-red-50 border border-red-200 p-8 rounded-3xl text-center">
-            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <div className="w-full max-w-xl bg-white border border-red-100 p-10 rounded-[2.5rem] text-center shadow-xl shadow-red-50">
+            <div className="w-20 h-20 bg-red-50 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
-            <h3 className="text-xl font-bold text-red-800 mb-2">Processing Failed</h3>
-            <p className="text-red-600 mb-6">{error}</p>
+            <h3 className="text-2xl font-bold text-slate-900 mb-2">Scan Failed</h3>
+            <p className="text-slate-500 mb-8">{error}</p>
             <button 
               onClick={reset}
-              className="bg-red-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-red-700 transition-all"
+              className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-indigo-600 transition-all shadow-lg"
             >
-              Try Again
+              Try Another Image
             </button>
           </div>
         )}
@@ -128,13 +156,29 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <footer className="py-8 border-t border-slate-200 text-center">
-        <p className="text-slate-400 text-sm">
-          &copy; {new Date().getFullYear()} ExamQuest AI. Helping students learn smarter, not harder.
-        </p>
+      <footer className="py-8 border-t border-slate-200 text-center text-slate-400 text-xs font-medium">
+        POWERED BY GEMINI 3 FLASH • &copy; {new Date().getFullYear()} EXAMQUEST
       </footer>
+
+      <style>{`
+        @keyframes scan {
+          0% { top: 0%; }
+          50% { top: 100%; }
+          100% { top: 0%; }
+        }
+      `}</style>
     </div>
   );
 };
+
+const FeatureCard = ({ icon, title, desc, color }: { icon: string, title: string, desc: string, color: string }) => (
+  <div className="p-6 bg-white rounded-3xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+    <div className={`w-12 h-12 ${color} rounded-2xl flex items-center justify-center text-xl mb-4`}>
+      {icon}
+    </div>
+    <h4 className="font-bold text-slate-900 mb-1">{title}</h4>
+    <p className="text-xs leading-relaxed text-slate-500">{desc}</p>
+  </div>
+);
 
 export default App;
