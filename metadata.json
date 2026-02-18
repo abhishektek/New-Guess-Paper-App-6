@@ -1,0 +1,7 @@
+{
+  "name": "ExamQuest OCR & Analyzer",
+  "description": "A high-performance OCR and smart analysis tool for exam guess papers, supporting English and Hindi with AI-powered explanations.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
